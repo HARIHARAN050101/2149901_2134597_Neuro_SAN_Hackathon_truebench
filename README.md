@@ -2,6 +2,11 @@
 
 **Track 2 (Vibing + Grounding) submission — Agentic AI Hackathon: Build with Neuro® AI Multi-Agent Accelerator (neuro-san), Cognizant AI Lab, Sept 2026.**
 
+Participants:
+
+1. Hariharan T(2149901)
+2. Hemanth Reddy(2134597)
+
 A multi-agent bench, redeployment, and talent-visibility system built entirely on the **Neuro SAN** framework: one front-man orchestrator, six domain-specialist agents, a dedicated governance/evaluation-loop agent, and a shared communications agent — all declared in a single HOCON agent network, backed by Python coded tools.
 
 This is a from-scratch reimplementation of the TrueBench concept **as a real Neuro SAN agent network**, not a UI mockup: every fact an agent states is grounded in a coded-tool call over an in-memory synthetic dataset, never invented by the LLM.
