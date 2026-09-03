@@ -1,0 +1,7 @@
+#
+# manifest.hocon — tells the neuro-san server which agent network(s) in this repo to load.
+# Set AGENT_MANIFEST_FILE to point at this file (see README.md).
+#
+{
+    "truebench/truebench_agent_network.hocon": true
+}

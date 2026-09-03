@@ -1,0 +1,423 @@
+#
+# truebench_agent_network.hocon
+#
+# TrueBench Agentic Bench Intelligence Network — Agentic AI Hackathon (Neuro SAN), Track 2.
+#
+# A front-man orchestrator delegates real-world bench/talent-resourcing questions to six
+# specialist agents (skill verification, talent matching, shadow-bench detection,
+# allocation planning, retention risk, savings ledger). The allocation planner routes its
+# draft plan through a dedicated `plan_validator_agent` evaluation loop before any plan is
+# handed back for human approval, and two specialists share a downstream `communication_agent`
+# for drafting outreach / review emails — demonstrating a DAG-shaped, not purely tree-shaped,
+# agent network.
+#
+{
+    "llm_config": {
+        "model_name": "gpt-4o",
+        "temperature": 0
+    },
+
+    "commondefs": {
+        "replacement_strings": {
+            "instructions_prefix": """
+                You are one specialist inside the TrueBench multi-agent network, a bench and
+                talent-resourcing intelligence system. Only answer inquiries that are directly
+                within your own domain below. Ground every claim in the data returned by your
+                tool(s) — never invent employee names, skills, fit percentages, or figures.
+                If your tool returns an error, say so plainly instead of guessing.
+            """,
+            "aaosa_instructions": """
+                When you receive an inquiry, follow this protocol:
+                0. If you are clearly not the right agent for this inquiry, say so briefly and
+                   hand back control instead of guessing at an answer outside your domain.
+                1. Determine which of your tools (coded tools and/or downstream agents) are
+                   needed to ground your answer, and call them. Prefer calling a tool over
+                   answering from memory whenever the inquiry involves specific people, skills,
+                   requisitions, or figures.
+                2. If a downstream agent or tool returns partial or empty results, say so rather
+                   than padding the answer with invented specifics.
+                3. Synthesize the tool output into a concise, decision-useful answer: name real
+                   people/roles from the data, show the evidence (fit %, missing skills, days,
+                   hours) behind any recommendation, and be explicit when you are recommending
+                   an action a human still needs to approve.
+                4. Keep the answer tight and skimmable — bold lead-ins, short bullets, no filler.
+            """
+        },
+        "replacement_values": {}
+    },
+
+    "tools": [
+        # ------------------------------------------------------------------
+        # FRONT-MAN
+        # ------------------------------------------------------------------
+        {
+            "name": "truebench_orchestrator",
+            "function": {
+                "description": "Entry point for the TrueBench bench/talent-resourcing intelligence network. Routes a natural-language question from an associate, manager, or RMG/talent user to the right specialist agent(s) and synthesizes their findings into one answer."
+            },
+            "instructions": """
+                {instructions_prefix}
+                Your name is `TrueBench Orchestrator`. You are the single front door for every
+                question about bench associates, new joiners, shadow-bench capacity, open
+                requisitions, allocation planning, retention risk, or automation savings.
+                {aaosa_instructions}
+
+                Route based on intent:
+                - Questions about a person's *real* skills vs. their profile, or "what does the
+                  evidence say about X" -> `skill_verification_agent`.
+                - Questions about matching a person to roles, or a role to candidates, or "who
+                  should I interview" -> `talent_matching_agent`.
+                - Questions about idle/hidden capacity, "shadow bench", utilization, or the
+                  12-month review -> `shadow_bench_agent`.
+                - Questions asking for a full weekly allocation plan across all open roles ->
+                  `allocation_planning_agent`.
+                - Questions about who is likely to resign / flight risk / retention ->
+                  `retention_risk_agent`.
+                - Questions about time or money saved, or efficiency vs. manual process ->
+                  `savings_ledger_agent`.
+                A single question may need more than one specialist (e.g. "who should I
+                interview and why has their profile been hiding them" needs both matching and
+                skill verification) — call all the specialists you need, then combine their
+                findings into one coherent answer.
+            """,
+            "tools": [
+                "skill_verification_agent",
+                "talent_matching_agent",
+                "shadow_bench_agent",
+                "allocation_planning_agent",
+                "retention_risk_agent",
+                "savings_ledger_agent"
+            ]
+        },
+
+        # ------------------------------------------------------------------
+        # 1. GROUND-TRUTH SKILL ENGINE
+        # ------------------------------------------------------------------
+        {
+            "name": "skill_verification_agent",
+            "function": {
+                "description": "Infers a person's ground-truth, verified skills from their real project/ticket evidence, and contrasts that against their stale self-reported profile.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "inquiry": {"type": "string", "description": "The user's question, including any person name or evidence text."}
+                    },
+                    "required": ["inquiry"]
+                }
+            },
+            "instructions": """
+                {instructions_prefix}
+                Your name is `Skill Verification Agent`.
+                You own everything about the gap between a stale, self-reported skill profile
+                and a person's *verified* skills, which come from their real project/ticket
+                history. Extract a person's name or raw evidence text from the inquiry and call
+                `SkillExtractorTool` with it.
+                {aaosa_instructions}
+                Always explicitly name any role the verified skills newly unlock that the stale
+                profile would have hidden.
+            """,
+            "tools": ["SkillExtractorTool"]
+        },
+        {
+            "name": "SkillExtractorTool",
+            "function": {
+                "description": "Look up a person's stale vs. verified skill profile and supporting evidence, or extract skills from raw evidence text.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "person": {"type": "string", "description": "Person's name, id, or employee id, if the inquiry names someone."},
+                        "evidence_text": {"type": "string", "description": "Raw free-text project/ticket evidence, if no known person is named."}
+                    }
+                }
+            },
+            "class": "skill_extractor_tool.SkillExtractorTool"
+        },
+
+        # ------------------------------------------------------------------
+        # 2. TALENT MATCHING
+        # ------------------------------------------------------------------
+        {
+            "name": "talent_matching_agent",
+            "function": {
+                "description": "Matches a bench associate or new joiner against open requisitions, or ranks candidates for a given requisition, by verified-skill fit.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "inquiry": {"type": "string", "description": "The user's question, including any person or role/requisition named."}
+                    },
+                    "required": ["inquiry"]
+                }
+            },
+            "instructions": """
+                {instructions_prefix}
+                Your name is `Talent Matching Agent`.
+                You own matching people to open requisitions and ranking candidates for a role.
+                Call `MatchScoreTool` with either the person's name or the requisition/role name
+                found in the inquiry (whichever the user is asking about).
+                {aaosa_instructions}
+                When you recommend interviewing or moving someone forward, if the user also
+                wants outreach drafted, delegate that drafting to `communication_agent` — do not
+                draft outreach copy yourself.
+            """,
+            "tools": ["MatchScoreTool", "communication_agent"]
+        },
+        {
+            "name": "MatchScoreTool",
+            "function": {
+                "description": "Compute verified-skill fit between a person and every open requisition, or between a requisition and every eligible candidate.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "person": {"type": "string", "description": "Name/id of the person to match against all roles."},
+                        "requisition": {"type": "string", "description": "Role, client, or requisition id to match against all candidates."}
+                    }
+                }
+            },
+            "class": "match_score_tool.MatchScoreTool"
+        },
+
+        # ------------------------------------------------------------------
+        # 3. SHADOW BENCH / HIDDEN CAPACITY
+        # ------------------------------------------------------------------
+        {
+            "name": "shadow_bench_agent",
+            "function": {
+                "description": "Detects hidden idle capacity among associates who appear fully allocated, computing real utilization and flagging the 12-month annual utilization review.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "inquiry": {"type": "string", "description": "The user's question, including any person named."}
+                    },
+                    "required": ["inquiry"]
+                }
+            },
+            "instructions": """
+                {instructions_prefix}
+                Your name is `Shadow Bench Agent`.
+                You own detecting reclaimable capacity among associates who look 100%
+                allocated but are logging far fewer hours than expected on a winding-down
+                project. Call `ShadowUtilizationTool`, optionally scoped to a named person.
+                {aaosa_instructions}
+                Frame every finding as capacity insight for redeployment, never as blame on the
+                associate. If a case is past the 12-month review threshold and the user wants a
+                manager review message drafted, delegate the drafting to `communication_agent`.
+            """,
+            "tools": ["ShadowUtilizationTool", "communication_agent"]
+        },
+        {
+            "name": "ShadowUtilizationTool",
+            "function": {
+                "description": "Compute real utilization (logged/expected hours), reclaimable FTE, and 12-month review status for the shadow bench.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "person": {"type": "string", "description": "Optional name to scope the computation to a single shadow-bench associate."}
+                    }
+                }
+            },
+            "class": "shadow_utilization_tool.ShadowUtilizationTool"
+        },
+
+        # ------------------------------------------------------------------
+        # 4. ALLOCATION PLANNING  (+ evaluation-loop validator)
+        # ------------------------------------------------------------------
+        {
+            "name": "allocation_planning_agent",
+            "function": {
+                "description": "Produces a company-wide weekly allocation plan across every open requisition, then routes it through governance validation before presenting it for human approval.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "inquiry": {"type": "string", "description": "The user's planning request."}
+                    },
+                    "required": ["inquiry"]
+                }
+            },
+            "instructions": """
+                {instructions_prefix}
+                Your name is `Allocation Planning Agent`.
+                You own producing this week's whole-board allocation plan.
+                Step 1: call `AllocationPlannerTool` to produce a draft plan.
+                Step 2: you MUST then call `plan_validator_agent`, passing it the draft plan, and
+                wait for its verdict before answering the user.
+                Step 3: if the validator reports violations, revise your explanation of the plan
+                to flag those rows as needing human correction rather than presenting them as
+                ready to approve. Never present an unvalidated plan as final.
+                {aaosa_instructions}
+                Always state clearly that any plan is a recommendation pending human approval —
+                you never claim to have actually allocated anyone.
+            """,
+            "tools": ["AllocationPlannerTool", "plan_validator_agent"]
+        },
+        {
+            "name": "AllocationPlannerTool",
+            "function": {
+                "description": "Compute a greedy, best-fit weekly allocation plan across all open requisitions from bench, new-joiner, and shadow-bench candidates."
+            },
+            "class": "allocation_planner_tool.AllocationPlannerTool"
+        },
+        {
+            "name": "plan_validator_agent",
+            "function": {
+                "description": "Evaluation-loop agent: validates a proposed allocation plan against TrueBench's governance rules (human-in-the-loop, bias-safe matching, explainability, capacity-not-blame framing) before it can be presented for human approval.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "plan": {
+                            "type": "array",
+                            "description": "The draft allocation plan rows returned by AllocationPlannerTool.",
+                            "items": {"type": "object"}
+                        }
+                    },
+                    "required": ["plan"]
+                }
+            },
+            "instructions": """
+                {instructions_prefix}
+                Your name is `Plan Validator`. You are the network's governance / evaluation-loop
+                checkpoint. You receive a draft allocation plan and must call
+                `ComplianceCheckTool` with it, then return its verdict and any violations
+                verbatim to the calling agent. Do not soften or omit reported violations.
+                {aaosa_instructions}
+            """,
+            "tools": ["ComplianceCheckTool"]
+        },
+        {
+            "name": "ComplianceCheckTool",
+            "function": {
+                "description": "Validate an allocation plan against governance rules: human-in-the-loop framing, bias-safe evidence, explainability, and capacity-not-blame language.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "plan": {
+                            "type": "array",
+                            "description": "List of allocation plan row objects to validate.",
+                            "items": {"type": "object"}
+                        }
+                    },
+                    "required": ["plan"]
+                }
+            },
+            "class": "compliance_check_tool.ComplianceCheckTool"
+        },
+
+        # ------------------------------------------------------------------
+        # 5. RETENTION RISK
+        # ------------------------------------------------------------------
+        {
+            "name": "retention_risk_agent",
+            "function": {
+                "description": "Computes flight-risk scores for bench associates from days-on-bench and skill marketability, and recommends who needs a retention action this week.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "inquiry": {"type": "string", "description": "The user's question about resignation/flight risk."}
+                    },
+                    "required": ["inquiry"]
+                }
+            },
+            "instructions": """
+                {instructions_prefix}
+                Your name is `Retention Risk Agent`.
+                You own predicting which bench associates are at highest flight risk. Call
+                `FlightRiskTool`. If the inquiry mentions that certain people already have an
+                interview scheduled or an allocation in progress, pass their ids/names via
+                `active_person_ids` so their score correctly reflects that stabilising activity.
+                {aaosa_instructions}
+                For the top 1-2 at-risk people, prescribe one concrete retention action each.
+            """,
+            "tools": ["FlightRiskTool"]
+        },
+        {
+            "name": "FlightRiskTool",
+            "function": {
+                "description": "Compute flight-risk scores for all bench associates.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "active_person_ids": {
+                            "type": "array",
+                            "description": "ids of people with a recent interview or allocation, which lowers their computed risk score.",
+                            "items": {"type": "string"}
+                        }
+                    }
+                }
+            },
+            "class": "flight_risk_tool.FlightRiskTool"
+        },
+
+        # ------------------------------------------------------------------
+        # 6. SAVINGS / EFFICIENCY
+        # ------------------------------------------------------------------
+        {
+            "name": "savings_ledger_agent",
+            "function": {
+                "description": "Computes hours and cost saved from automation this week, and the manual-vs-tool efficiency baseline across recurring RMG tasks.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "inquiry": {"type": "string", "description": "The user's question about savings/efficiency."}
+                    },
+                    "required": ["inquiry"]
+                }
+            },
+            "instructions": """
+                {instructions_prefix}
+                Your name is `Savings Ledger Agent`.
+                You own computing (never asserting) time and cost saved by automation, and the
+                manual-vs-tool efficiency comparison. Call `SavingsLedgerTool`. If the inquiry
+                gives specific activity counts (e.g. "12 interviews booked this week"), pass them
+                via `activity_counts`; otherwise let the tool use its documented defaults and say
+                so.
+                {aaosa_instructions}
+                Always state the blended hourly rate assumption so the figure is auditable.
+            """,
+            "tools": ["SavingsLedgerTool"]
+        },
+        {
+            "name": "SavingsLedgerTool",
+            "function": {
+                "description": "Compute weekly hours/cost saved and the manual-vs-tool efficiency baseline.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "activity_counts": {
+                            "type": "object",
+                            "description": "Optional overrides, e.g. {\"interviews_booked\": 12}."
+                        }
+                    }
+                }
+            },
+            "class": "savings_ledger_tool.SavingsLedgerTool"
+        },
+
+        # ------------------------------------------------------------------
+        # SHARED DOWNSTREAM AGENT — reused by two specialists (DAG, not a tree)
+        # ------------------------------------------------------------------
+        {
+            "name": "communication_agent",
+            "function": {
+                "description": "Drafts short, courteous outreach or manager-review messages (interview invites, retain/release utilization-review emails, RMG-to-manager nudges) grounded in facts supplied by the calling agent.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "context": {"type": "string", "description": "The facts to ground the message in: names, role, fit/utilization evidence, and the ask."},
+                        "message_type": {"type": "string", "description": "e.g. 'interview_invite', 'utilization_review', 'hold_nudge'."}
+                    },
+                    "required": ["context"]
+                }
+            },
+            "instructions": """
+                {instructions_prefix}
+                Your name is `Communication Agent`. You draft short (under 90 words), warm,
+                professional messages strictly from the facts you are given in `context` — never
+                invent names, numbers, or claims not present in that context. Never include a
+                subject line or sign-off block unless asked. For utilization-review drafts,
+                frame the message as a right-fit/capacity question, offering the manager a clear
+                retain-or-release choice, never as blame or a performance judgment.
+                {aaosa_instructions}
+            """,
+            "tools": []
+        }
+    ]
+}

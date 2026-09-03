@@ -1,0 +1,13 @@
+Apache License 2.0
+
+This project is released under the Apache License, Version 2.0, consistent with the
+licensing of the Neuro SAN framework it is built on
+(https://github.com/cognizant-ai-lab/neuro-san-studio).
+
+Per the Agentic AI Hackathon (Cognizant AI Lab) Intellectual Property terms: any
+components of this project derived directly from the Neuro SAN platform remain the
+property of Cognizant AI Lab. The original agent network design, coded tool logic,
+instructions, and documentation authored for this submission are retained by the
+author, made available here under Apache-2.0.
+
+Full license text: https://www.apache.org/licenses/LICENSE-2.0

@@ -1,0 +1,11 @@
+# Core Neuro SAN framework and studio runner (installs neuro-san + its dependencies).
+# Pin/adjust versions to whatever neuro-san-studio's own requirements.txt specifies at
+# the time you clone it — this file intentionally tracks the framework loosely.
+neuro-san
+neuro-san-studio
+
+# LLM provider SDK — install whichever provider(s) you set an API key for.
+# The default config in this repo uses OpenAI; swap freely (see README.md, section 4).
+langchain-openai
+langchain-anthropic
+langchain-google-genai
